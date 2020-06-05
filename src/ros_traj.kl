@@ -1,4 +1,3 @@
-
 -- Copyright (c) 2017, TU Delft Robotics Institute
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,9 +44,9 @@ PROGRAM ros_traj
 %NOLOCKGROUP
 %NOPAUSE = COMMAND + TPENABLE + ERROR
 
-
-
-
+  
+ 
+ 
 --------------------------------------------------------------------------------
 --
 -- remote types & constants
@@ -131,6 +130,9 @@ VAR
 	msg000B_               : sm000B_t
 	sm000B_lst_            : sm000B_lst_t   -- list of JOINT_TRAJ_PT msgs
 	outs_msgs_             : INTEGER        -- number of messages received and to ACK
+	cur_jpos_              : JOINTPOS       -- CURRENT JOINT POS
+	io_id_				   : INTEGER        -- DOUT[3], IT IS USED TO STOP ROBOT
+	iterator_			   : INTEGER        -- ITERATOR FOR FOR LOOP
 
 
 
@@ -239,11 +241,15 @@ BEGIN
 	log_info_a(LOG_PFIX + 'buf sz:', cfg_.trjpt_buf_sz)
 	log_info(LOG_PFIX + 'init done')
 
+	io_id_ = 3
+	iterator_ = 1
 
 	WHILE (NOT shutdwn_req_) DO
 
 		-- inform user
 		log_info(LOG_PFIX + 'wait client')
+		log_info(LOG_PFIX + 'stop, is assigned to DO[3]')
+		log_info(LOG_PFIX + 'turn ON DO[3] to STOP robot while in motion')
 
 		-- we need binary mode (UnFormatted)
 		-- KAREL Reference Manual, MARRC75KR07091E Rev C, sec 7.3.1
@@ -386,9 +392,9 @@ BEGIN
 		ENDIF
 
 
-		-- finally add new traj pt to list
-		sm000Bl_apnd(sm000B_lst_, msg000B_)
-		outs_msgs_ = outs_msgs_ + 1
+	-- finally add new traj pt to list
+	sm000Bl_apnd(sm000B_lst_, msg000B_)
+	outs_msgs_ = outs_msgs_ + 1
 
 
 	-- 'continue without a new message'
@@ -452,9 +458,65 @@ BEGIN
 		-- push successfull, remove
 		sm000Bl_rmov(sm000B_lst_, HEAD_OF_LIST)
 
+       
+	    -- IF THE LOOP IS CONTINUING WITH A NEW MESSAGE , STILL WE WILL LISTEN TO DOUT[3], TO LISTEN AND PROCESS ANY STOP COMMANDS
+		 --IF DOUT[3] IS ON, IMMEDIATELY STOP ANY MOTION WITH FOLLOWING BLOCK
+		IF (DOUT[io_id_] = ON) THEN 
+			-- GET CURRENT JOINT POSITIONS
+			cur_jpos_ = CURJPOS(0,0)
+			--  STOP THE CURRENT MOTION
+			STOP  
+			 -- CANCEL THE MOTION  
+			CANCEL
+			-- TURN OFF DOUT[3] AGAIN, SO ROBOT CAN WAIT FOR NEW COMMANDS FROM DOUT[3]
+			DOUT[io_id_] = OFF 
+			-- INFORM USER ABOUT THE STOP COMMAND RECIEVED
+			log_info_a(LOG_PFIX + 'STOP MOTION COMMAND RECIEVED, STOPING IMMEDIATELY!',0)
+			--CLEAR POINT LIST
+			sm000Bl_cler(sm000B_lst_) 
+			outs_msgs_ = 0
+			--REQUEST CANCEL TP MOTION
+			cancl_mtion_(cfg)   
+            -- PUSH CURRENT JOINT POSTIONS TO LIST, SHOULD BE MORE THAN THE BUFFER
+			FOR iterator_ = 1 TO 8 DO
+				-- SET TARGET JOINT POSTIONS AS CURRENT ONE , IMMEDIATELY STOPS ROBOT
+				SET_JPOS_REG(cfg.pr_move, cur_jpos_, stat__)
+				-- MAKE SURE OPERATION WAS SUCCESSFULL
+				IF (stat__ <> 0) THEN RETURN (-stat__); ENDIF
+			ENDFOR	
+			-- SIGNAL THAT THERE IS NEW POINT AVAILABLE
+			FLG[cfg.f_msm_drdy] = ON
+		ENDIF
 
-		-- sleep a little
-	lbl_cont1::
+ 	lbl_cont1::
+	    -- IF THE LOOP IS CONTINUING WITHOUT A NEW MESSAGE , STILL WE WILL LISTEN TO DOUT[3], TO LISTEN AND PROCESS ANY STOP COMMANDS
+		 --IF DOUT[3] IS ON IMMEDIATELY STOP ANY MOTION WITH FOLLOWING BLOCK
+		IF (DOUT[io_id_] = ON) THEN 
+			-- GET CURRENT JOINT POSITIONS
+			cur_jpos_ = CURJPOS(0,0)
+			--  STOP THE CURRENT MOTION
+			STOP  
+			 -- CANCEL THE MOTION  
+			CANCEL
+			-- TURN OFF DOUT[3] AGAIN, SO ROBOT CAN WAIT FOR NEW COMMANDS FROM DOUT[3]
+			DOUT[io_id_] = OFF 
+			-- INFORM USER ABOUT THE STOP COMMAND RECIEVED
+			log_info_a(LOG_PFIX + 'STOP MOTION COMMAND RECIEVED, STOPING IMMEDIATELY!',0)
+			--CLEAR POINT LIST
+			sm000Bl_cler(sm000B_lst_) 
+			outs_msgs_ = 0
+			--REQUEST CANCEL TP MOTION
+			cancl_mtion_(cfg)   
+            -- PUSH CURRENT JOINT POSTIONS TO LIST, SHOULD BE MORE THAN THE BUFFER
+			FOR iterator_ = 1 TO 8 DO
+				-- SET TARGET JOINT POSTIONS AS CURRENT ONE , IMMEDIATELY STOPS ROBOT
+				SET_JPOS_REG(cfg.pr_move, cur_jpos_, stat__)
+				-- MAKE SURE OPERATION WAS SUCCESSFULL
+				IF (stat__ <> 0) THEN RETURN (-stat__); ENDIF
+			ENDFOR	
+			-- SIGNAL THAT THERE IS NEW POINT AVAILABLE
+			FLG[cfg.f_msm_drdy] = ON
+		ENDIF
 		DELAY (sleep_time_)
 
 
